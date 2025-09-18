@@ -40,8 +40,9 @@ jobs:
         run: |
           echo "=== BPB 源码目录结构 ==="
           ls -la bpb-source/
-          echo "=== 查找所有 .js 文件 ==="
-          find bpb-source/ -name "*.js" -type f
+          echo "=== 查找所有 .js 文件并显示大小 ==="
+          find bpb-source/ -name "*.js" -type f -exec ls -lh {} \; | grep -E '\.js$'
+
           echo "=== 查找包含 worker 的文件 ==="
           find bpb-source/ -name "*worker*" -type f
           echo "=== 查找 build 目录 ==="
@@ -54,7 +55,7 @@ jobs:
       - name: 复制构建文件
         run: |
           echo "=== 查找所有 .js 文件并显示大小 ==="
-          find bpb-source/ -name "*.js" -type f -exec ls -lh {} \; | grep -E '\.(js)
+          find bpb-source/ -name "*.js" -type f -exec ls -lh {} \; | grep -E '\.js$'
           
       - name: 清理临时目录
         run: |
