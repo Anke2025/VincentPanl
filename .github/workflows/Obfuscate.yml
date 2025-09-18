@@ -102,13 +102,12 @@ jobs:
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           push_options: '--set-upstream'
           
-          echo "=== 专门查找大文件（>100KB）==="
-          find bpb-source/ -name "*.js" -type f -size +100k -exec ls -lh {} \;
-          
-          # 尝试多个可能的路径，并检查文件大小
+      - name: 查找构建文件并复制 origin.js
+        run: |
+          echo "=== 专门查找大文件（>50KB） ==="
           FOUND_FILE=""
-          
-          # 检查各种可能的路径
+
+          # 尝试多个可能的路径
           for path in \
             "bpb-source/build/unobfuscated-worker.js" \
             "bpb-source/dist/unobfuscated-worker.js" \
@@ -118,9 +117,8 @@ jobs:
             "bpb-source/worker.js"
           do
             if [ -f "$path" ]; then
-              size=$(stat -f%z "$path" 2>/dev/null || stat -c%s "$path" 2>/dev/null || echo "0")
+              size=$(stat -c%s "$path" 2>/dev/null || echo "0")
               echo "检查文件 $path，大小：$size bytes"
-              # 如果文件大于50KB，认为是真正的构建文件
               if [ "$size" -gt 51200 ]; then
                 FOUND_FILE="$path"
                 echo "找到大文件：$path (${size} bytes)"
@@ -128,7 +126,7 @@ jobs:
               fi
             fi
           done
-          
+
           # 如果还没找到，查找所有大于50KB的.js文件
           if [ -z "$FOUND_FILE" ]; then
             echo "在所有目录中查找大于50KB的.js文件："
@@ -140,18 +138,18 @@ jobs:
               echo "使用第一个大文件：$FOUND_FILE"
             fi
           fi
-          
+
           # 复制文件
           if [ -n "$FOUND_FILE" ] && [ -f "$FOUND_FILE" ]; then
             cp "$FOUND_FILE" origin.js
-            size=$(stat -f%z origin.js 2>/dev/null || stat -c%s origin.js 2>/dev/null || echo "0")
+            size=$(stat -c%s origin.js 2>/dev/null || echo "0")
             echo "成功复制文件，大小：$size bytes"
           else
             echo "错误：找不到合适大小的构建文件"
-            echo "所有找到的 .js 文件："
             find bpb-source/ -name "*.js" -type f -exec ls -lh {} \;
             exit 1
           fi
+
           
       - name: 清理临时目录
         run: |
