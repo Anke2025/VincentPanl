@@ -1,50 +1,45 @@
-name: Build and Obfuscate BPB Panel (专属混淆)
+name: Obfuscate Local BPB Worker
 
 on:
   push:
     branches:
       - main
   schedule:
+    # 每天凌晨1:00运行
     - cron: "0 1 * * *"
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  obfuscate:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出仓库
+      - name: 检出代码
         uses: actions/checkout@v4
 
       - name: 设置 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          node-version: "latest"
 
-      - name: 安装依赖项
-        run: |
-          npm install -g javascript-obfuscator
-          npm install
+      - name: 安装混淆器
+        run: npm install -g javascript-obfuscator
 
-      - name: 构建 worker
-        run: |
-          node build/build.js
-
-      - name: 确认 worker 文件
-        id: worker_path
+      - name: 确认本地 worker 文件
+        id: check_worker
         run: |
           WORKER_FILE="./dist/worker.js"
           if [ ! -f "$WORKER_FILE" ]; then
-            echo "❌ 未找到构建产物 $WORKER_FILE"
+            echo "❌ 未找到 $WORKER_FILE，请先构建 worker.js"
             exit 1
           fi
           echo "worker_file=$WORKER_FILE" >> $GITHUB_OUTPUT
 
-      - name: 专属混淆 worker (再混淆一次，保证唯一性)
+      - name: 混淆本地 worker.js (专属逻辑)
         run: |
-          javascript-obfuscator "${{ steps.worker_path.outputs.worker_file }}" --output _worker.js \
+          javascript-obfuscator "${{ steps.check_worker.outputs.worker_file }}" --output _worker.js \
             --compact true \
             --control-flow-flattening true \
             --dead-code-injection true \
