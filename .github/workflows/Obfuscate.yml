@@ -44,12 +44,19 @@ jobs:
         run: |
           unzip -q source.zip
           FOLDER_NAME="BPB-Worker-Panel-${{ steps.get_tag.outputs.tag }}"
+          echo "Listing directory structure for debugging:"
+          ls -R "$FOLDER_NAME"
           if [ -f "${FOLDER_NAME}/build/unobfuscated-worker.js" ]; then
             cp "${FOLDER_NAME}/build/unobfuscated-worker.js" origin.js
+            echo "Found and copied build/unobfuscated-worker.js"
           elif [ -f "${FOLDER_NAME}/worker.js" ]; then
             cp "${FOLDER_NAME}/worker.js" origin.js
+            echo "Found and copied worker.js"
+          elif [ -f "${FOLDER_NAME}/src/worker.js" ]; then
+            cp "${FOLDER_NAME}/src/worker.js" origin.js
+            echo "Found and copied src/worker.js"
           else
-            echo "Error: unobfuscated-worker.js or worker.js not found in ${FOLDER_NAME}"
+            echo "Error: No worker.js or unobfuscated-worker.js found in ${FOLDER_NAME}"
             exit 1
           fi
 
@@ -61,6 +68,7 @@ jobs:
             echo "Error: Failed to download worker.js from main branch"
             exit 1
           fi
+          echo "Downloaded worker.js from main branch"
 
       - name: Obfuscate BPB worker js
         run: |
