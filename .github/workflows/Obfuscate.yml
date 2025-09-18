@@ -22,10 +22,6 @@ jobs:
         with:
           node-version: "latest"
           
-      - name: 安装全局依赖项
-        run: |
-          npm install -g javascript-obfuscator
-          
       - name: 检出 BPB 源码到临时目录
         run: |
           git clone https://github.com/bia-pain-bache/BPB-Worker-Panel.git bpb-source
@@ -53,23 +49,103 @@ jobs:
           
       - name: 复制构建文件
         run: |
-          # 尝试多个可能的路径
-          if [ -f "bpb-source/build/unobfuscated-worker.js" ]; then
-            cp bpb-source/build/unobfuscated-worker.js origin.js
-            echo "找到文件：bpb-source/build/unobfuscated-worker.js"
-          elif [ -f "bpb-source/dist/unobfuscated-worker.js" ]; then
-            cp bpb-source/dist/unobfuscated-worker.js origin.js
-            echo "找到文件：bpb-source/dist/unobfuscated-worker.js"
-          elif [ -f "bpb-source/_worker.js" ]; then
-            cp bpb-source/_worker.js origin.js
-            echo "找到文件：bpb-source/_worker.js"
-          elif [ -f "bpb-source/src/worker.js" ]; then
-            cp bpb-source/src/worker.js origin.js
-            echo "找到文件：bpb-source/src/worker.js"
+          echo "=== 查找所有 .js 文件并显示大小 ==="
+          find bpb-source/ -name "*.js" -type f -exec ls -lh {} \; | grep -E '\.(js)
+          
+      - name: 清理临时目录
+        run: |
+          rm -rf bpb-source
+          
+      - name: 检查文件是否存在
+        run: |
+          if [ ! -f origin.js ]; then
+            echo "错误：origin.js 文件不存在"
+            exit 1
+          fi
+          echo "文件大小: $(wc -c < origin.js) bytes"
+          
+      - name: 混淆 BPB worker.js
+        run: |
+          javascript-obfuscator origin.js --output _worker.js \
+            --compact true \
+            --control-flow-flattening false \
+            --dead-code-injection false \
+            --identifier-names-generator mangled \
+            --rename-globals false \
+            --string-array true \
+            --string-array-encoding 'rc4' \
+            --string-array-threshold 0.75 \
+            --transform-object-keys true \
+            --unicode-escape-sequence true
+            
+      - name: 验证混淆结果
+        run: |
+          if [ ! -f _worker.js ]; then
+            echo "错误：混淆失败，_worker.js 文件不存在"
+            exit 1
+          fi
+          echo "混淆后文件大小: $(wc -c < _worker.js) bytes"
+          
+      - name: 清理中间文件
+        run: |
+          rm -f origin.js
+          
+      - name: 提交更改
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: main
+          commit_message: ':arrow_up: 更新最新的 BPB 面板'
+          commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
+          push_options: '--set-upstream'
+          
+          echo "=== 专门查找大文件（>100KB）==="
+          find bpb-source/ -name "*.js" -type f -size +100k -exec ls -lh {} \;
+          
+          # 尝试多个可能的路径，并检查文件大小
+          FOUND_FILE=""
+          
+          # 检查各种可能的路径
+          for path in \
+            "bpb-source/build/unobfuscated-worker.js" \
+            "bpb-source/dist/unobfuscated-worker.js" \
+            "bpb-source/build/worker.js" \
+            "bpb-source/dist/worker.js" \
+            "bpb-source/_worker.js" \
+            "bpb-source/worker.js"
+          do
+            if [ -f "$path" ]; then
+              size=$(stat -f%z "$path" 2>/dev/null || stat -c%s "$path" 2>/dev/null || echo "0")
+              echo "检查文件 $path，大小：$size bytes"
+              # 如果文件大于50KB，认为是真正的构建文件
+              if [ "$size" -gt 51200 ]; then
+                FOUND_FILE="$path"
+                echo "找到大文件：$path (${size} bytes)"
+                break
+              fi
+            fi
+          done
+          
+          # 如果还没找到，查找所有大于50KB的.js文件
+          if [ -z "$FOUND_FILE" ]; then
+            echo "在所有目录中查找大于50KB的.js文件："
+            LARGE_FILES=$(find bpb-source/ -name "*.js" -type f -size +50k)
+            if [ -n "$LARGE_FILES" ]; then
+              echo "找到的大文件："
+              echo "$LARGE_FILES"
+              FOUND_FILE=$(echo "$LARGE_FILES" | head -n1)
+              echo "使用第一个大文件：$FOUND_FILE"
+            fi
+          fi
+          
+          # 复制文件
+          if [ -n "$FOUND_FILE" ] && [ -f "$FOUND_FILE" ]; then
+            cp "$FOUND_FILE" origin.js
+            size=$(stat -f%z origin.js 2>/dev/null || stat -c%s origin.js 2>/dev/null || echo "0")
+            echo "成功复制文件，大小：$size bytes"
           else
-            echo "错误：找不到构建后的 worker 文件"
-            echo "尝试查找任何包含 worker 的 .js 文件："
-            find bpb-source/ -name "*worker*.js" -type f
+            echo "错误：找不到合适大小的构建文件"
+            echo "所有找到的 .js 文件："
+            find bpb-source/ -name "*.js" -type f -exec ls -lh {} \;
             exit 1
           fi
           
