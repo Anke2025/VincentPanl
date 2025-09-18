@@ -39,25 +39,52 @@ jobs:
         run: |
           wget -O source.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/archive/refs/tags/${{ steps.get_tag.outputs.tag }}.zip"
 
-      - name: Extract ZIP and locate worker script
+      - name: Extract ZIP and locate/build worker script
         if: steps.get_tag.outputs.tag != 'none'
         run: |
           unzip -q source.zip
-          FOLDER_NAME="BPB-Worker-Panel-${{ steps.get_tag.outputs.tag }}"
-          echo "Listing directory structure for debugging:"
+          echo "Current directory after unzip:"
+          ls -la .
+          # Dynamically find the BPB folder (handles name variations like with/without 'v')
+          FOLDER_NAME=$(ls -d BPB* 2>/dev/null | head -1)
+          if [ -z "$FOLDER_NAME" ]; then
+            echo "Error: No BPB folder found after unzip"
+            exit 1
+          fi
+          echo "Using folder: $FOLDER_NAME"
+          echo "Directory structure:"
           ls -R "$FOLDER_NAME"
-          if [ -f "${FOLDER_NAME}/build/unobfuscated-worker.js" ]; then
-            cp "${FOLDER_NAME}/build/unobfuscated-worker.js" origin.js
+          # Search for worker files
+          echo "Searching for worker files:"
+          find "$FOLDER_NAME" -name "*worker*.js" -type f 2>/dev/null || echo "No worker.js found; attempting build"
+          # Try to copy existing file
+          if [ -f "$FOLDER_NAME/build/unobfuscated-worker.js" ]; then
+            cp "$FOLDER_NAME/build/unobfuscated-worker.js" origin.js
             echo "Found and copied build/unobfuscated-worker.js"
-          elif [ -f "${FOLDER_NAME}/worker.js" ]; then
-            cp "${FOLDER_NAME}/worker.js" origin.js
+          elif [ -f "$FOLDER_NAME/worker.js" ]; then
+            cp "$FOLDER_NAME/worker.js" origin.js
             echo "Found and copied worker.js"
-          elif [ -f "${FOLDER_NAME}/src/worker.js" ]; then
-            cp "${FOLDER_NAME}/src/worker.js" origin.js
+          elif [ -f "$FOLDER_NAME/src/worker.js" ]; then
+            cp "$FOLDER_NAME/src/worker.js" origin.js
             echo "Found and copied src/worker.js"
           else
-            echo "Error: No worker.js or unobfuscated-worker.js found in ${FOLDER_NAME}"
-            exit 1
+            # Fallback to build if no pre-built file
+            echo "Building from source..."
+            cd "$FOLDER_NAME"
+            npm install
+            if npm run build; then
+              cd ..
+              if [ -f "$FOLDER_NAME/build/unobfuscated-worker.js" ]; then
+                cp "$FOLDER_NAME/build/unobfuscated-worker.js" origin.js
+                echo "Built and copied build/unobfuscated-worker.js"
+              else
+                echo "Error: Build succeeded but unobfuscated-worker.js not found"
+                exit 1
+              fi
+            else
+              echo "Error: npm run build failed"
+              exit 1
+            fi
           fi
 
       - name: Fallback to main branch if no release found
@@ -72,6 +99,10 @@ jobs:
 
       - name: Obfuscate BPB worker js
         run: |
+          if [ ! -f origin.js ]; then
+            echo "Error: origin.js not created"
+            exit 1
+          fi
           javascript-obfuscator origin.js --output _worker.js \
           --compact true \
           --control-flow-flattening true \
