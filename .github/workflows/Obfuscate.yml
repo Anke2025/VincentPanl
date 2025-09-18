@@ -27,25 +27,19 @@ jobs:
       - name: Install dependencies
         run: |
           npm install -g javascript-obfuscator
-
       - name: Get latest release tag
         id: get_tag
         run: |
           LATEST_TAG=$(curl -s https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "none")
           echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-
       - name: Download source code ZIP
         if: steps.get_tag.outputs.tag != 'none'
         run: |
           wget -O source.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/archive/refs/tags/${{ steps.get_tag.outputs.tag }}.zip"
-
       - name: Extract ZIP and locate/build worker script
         if: steps.get_tag.outputs.tag != 'none'
         run: |
-          # Clean directory except .git to avoid conflicts
-          rm -rf * .[^.]* 2>/dev/null || true
-          # Force overwrite and quiet unzip
-          unzip -q -o source.zip
+          unzip -q source.zip
           echo "Current directory after unzip:"
           ls -la .
           # Dynamically find the BPB folder (handles name variations like with/without 'v')
@@ -89,7 +83,6 @@ jobs:
               exit 1
             fi
           fi
-
       - name: Fallback to main branch if no release found
         if: steps.get_tag.outputs.tag == 'none'
         run: |
@@ -99,7 +92,6 @@ jobs:
             exit 1
           fi
           echo "Downloaded worker.js from main branch"
-
       - name: Obfuscate BPB worker js
         run: |
           if [ ! -f origin.js ]; then
@@ -119,7 +111,6 @@ jobs:
           --string-array-threshold 1 \
           --transform-object-keys true \
           --unicode-escape-sequence true
-
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
