@@ -1,11 +1,11 @@
-name: Build and Obfuscate BPB Panel
+name: Build Obfuscate BPB Panel
 
 on:
   push:
     branches:
       - main
   schedule:
-    # 每天凌晨1:00运行
+    # Runs everyday at 1:00 AM
     - cron: "0 1 * * *"
 
 permissions:
@@ -16,22 +16,82 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出代码
+      - name: Check out the code
         uses: actions/checkout@v4
 
-      - name: 设置 Node.js 环境
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "latest"
 
-      - name: 安装依赖项
+      - name: Install dependencies
         run: |
           npm install -g javascript-obfuscator
-
-      - name: 下载 BPB worker.js
+      - name: Get latest release tag
+        id: get_tag
         run: |
-          wget -O origin.js https://raw.githubusercontent.com/bia-pain-bache/BPB-Worker-Panel/main/build/unobfuscated-worker.js
-
+          LATEST_TAG=$(curl -s https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "none")
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+      - name: Download source code ZIP
+        if: steps.get_tag.outputs.tag != 'none'
+        run: |
+          wget -O source.zip "https://github.com/bia-pain-bache/BPB-Worker-Panel/archive/refs/tags/${{ steps.get_tag.outputs.tag }}.zip"
+      - name: Extract ZIP and locate/build worker script
+        if: steps.get_tag.outputs.tag != 'none'
+        run: |
+          unzip -q source.zip
+          echo "Current directory after unzip:"
+          ls -la .
+          # Dynamically find the BPB folder (handles name variations like with/without 'v')
+          FOLDER_NAME=$(ls -d BPB* 2>/dev/null | head -1)
+          if [ -z "$FOLDER_NAME" ]; then
+            echo "Error: No BPB folder found after unzip"
+            exit 1
+          fi
+          echo "Using folder: $FOLDER_NAME"
+          echo "Directory structure:"
+          ls -R "$FOLDER_NAME"
+          # Search for worker files
+          echo "Searching for worker files:"
+          find "$FOLDER_NAME" -name "*worker*.js" -type f 2>/dev/null || echo "No worker.js found; attempting build"
+          # Try to copy existing file
+          if [ -f "$FOLDER_NAME/build/unobfuscated-worker.js" ]; then
+            cp "$FOLDER_NAME/build/unobfuscated-worker.js" origin.js
+            echo "Found and copied build/unobfuscated-worker.js"
+          elif [ -f "$FOLDER_NAME/worker.js" ]; then
+            cp "$FOLDER_NAME/worker.js" origin.js
+            echo "Found and copied worker.js"
+          elif [ -f "$FOLDER_NAME/src/worker.js" ]; then
+            cp "$FOLDER_NAME/src/worker.js" origin.js
+            echo "Found and copied src/worker.js"
+          else
+            # Fallback to build if no pre-built file
+            echo "Building from source..."
+            cd "$FOLDER_NAME"
+            npm install
+            if npm run build; then
+              cd ..
+              if [ -f "$FOLDER_NAME/build/unobfuscated-worker.js" ]; then
+                cp "$FOLDER_NAME/build/unobfuscated-worker.js" origin.js
+                echo "Built and copied build/unobfuscated-worker.js"
+              else
+                echo "Error: Build succeeded but unobfuscated-worker.js not found"
+                exit 1
+              fi
+            else
+              echo "Error: npm run build failed"
+              exit 1
+            fi
+          fi
+      - name: Fallback to main branch if no release found
+        if: steps.get_tag.outputs.tag == 'none'
+        run: |
+          wget -O origin.js https://raw.githubusercontent.com/bia-pain-bache/BPB-Worker-Panel/main/worker.js
+          if [ ! -f origin.js ]; then
+            echo "Error: Failed to download worker.js from main branch"
+            exit 1
+          fi
+          echo "Downloaded worker.js from main branch"
       - name: 混淆 BPB worker.js
         run: |
           javascript-obfuscator origin.js --output _worker.js \
@@ -53,12 +113,10 @@ jobs:
             --transform-object-keys true \
             --unicode-escape-sequence true
 
-
-
-      - name: 提交更改
+      - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           branch: main
-          commit_message: ':arrow_up: 更新最新的 BPB 面板'
+          commit_message: ':arrow_up: update latest bpb panel (tag ${{ steps.get_tag.outputs.tag }})'
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           push_options: '--set-upstream'
