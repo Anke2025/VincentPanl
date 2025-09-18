@@ -22,6 +22,10 @@ jobs:
         with:
           node-version: "latest"
           
+      - name: 安装混淆工具
+        run: |
+          npm install -g javascript-obfuscator
+          
       - name: 检出 BPB 源码到临时目录
         run: |
           git clone https://github.com/bia-pain-bache/BPB-Worker-Panel.git bpb-source
