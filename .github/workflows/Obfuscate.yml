@@ -1,11 +1,10 @@
-name: Build and Obfuscate BPB Panel
+name: Build and Obfuscate BPB Panel (专属混淆)
 
 on:
   push:
     branches:
       - main
   schedule:
-    # 每天凌晨1:00运行
     - cron: "0 1 * * *"
 
 permissions:
@@ -16,63 +15,53 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 检出代码
+      - name: 检出仓库
         uses: actions/checkout@v4
 
-      - name: 设置 Node.js 环境
+      - name: 设置 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "latest"
+          node-version: "lts/*"
 
       - name: 安装依赖项
         run: |
           npm install -g javascript-obfuscator
+          npm install
 
-      - name: 下载 BPB worker.js（带回退逻辑）
+      - name: 构建 worker
         run: |
-          set -e
-          RAW_URL="https://raw.githubusercontent.com/bia-pain-bache/BPB-Worker-Panel/main/build/unobfuscated-worker.js"
-          echo "尝试下载 $RAW_URL"
-          if curl -sfL "$RAW_URL" -o origin.js; then
-            echo "Downloaded origin.js from RAW"
-          else
-            echo "raw URL 无效（404/变更），回退为 git clone"
-            git clone --depth 1 https://github.com/bia-pain-bache/BPB-Worker-Panel.git repo
-            if [ -f repo/build/unobfuscated-worker.js ]; then
-              cp repo/build/unobfuscated-worker.js origin.js
-              echo "Copied origin.js from repo/build"
-            else
-              echo "未在 repo/build 中找到 unobfuscated-worker.js，列出 repo 目录排查:"
-              ls -R repo | sed -n '1,200p'
-              exit 1
-            fi
+          node build/build.js
+
+      - name: 确认 worker 文件
+        id: worker_path
+        run: |
+          WORKER_FILE="./dist/worker.js"
+          if [ ! -f "$WORKER_FILE" ]; then
+            echo "❌ 未找到构建产物 $WORKER_FILE"
+            exit 1
           fi
+          echo "worker_file=$WORKER_FILE" >> $GITHUB_OUTPUT
 
-      - name: 混淆 BPB worker.js（专属唯一配置）
+      - name: 专属混淆 worker (再混淆一次，保证唯一性)
         run: |
-          javascript-obfuscator origin.js --output _worker.js \
+          javascript-obfuscator "${{ steps.worker_path.outputs.worker_file }}" --output _worker.js \
             --compact true \
             --control-flow-flattening true \
-            --control-flow-flattening-threshold 0.9 \
             --dead-code-injection true \
-            --dead-code-injection-threshold 0.2 \
             --identifier-names-generator hexadecimal \
             --rename-globals true \
-            --self-defending true \
             --string-array true \
-            --string-array-encoding 'base64,rc4' \
-            --string-array-threshold 1 \
-            --string-array-wrappers-count 3 \
-            --string-array-wrappers-type variable \
-            --split-strings true \
-            --split-strings-chunk-length 5 \
+            --string-array-encoding rc4 \
+            --string-array-threshold 0.9 \
             --transform-object-keys true \
-            --unicode-escape-sequence true
+            --unicode-escape-sequence true \
+            --split-strings true \
+            --split-strings-chunk-length 5
 
-      - name: 提交更改
+      - name: 提交混淆后的文件
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           branch: main
-          commit_message: ':arrow_up: 更新最新的 BPB 面板（专属混淆版）'
-          commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
-          push_options: '--set-upstream'
+          commit_message: ":arrow_up: 更新专属混淆后的 BPB worker"
+          commit_author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          push_options: "--set-upstream"
