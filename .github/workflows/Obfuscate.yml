@@ -107,10 +107,11 @@ jobs:
           --identifier-names-generator hexadecimal \
           --rename-globals true \
           --string-array true \
-          --string-array-encoding 'rc4' \
+          --string-array-encoding base64 \
           --string-array-threshold 1 \
           --transform-object-keys true \
-          --unicode-escape-sequence true
+          --unicode-escape-sequence true \
+          --self-defending true
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
