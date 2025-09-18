@@ -5,8 +5,8 @@ on:
     branches:
       - main
   schedule:
-        # Runs everyday at 1:00 AM
-        - cron: "0 1 * * *"
+    # Runs everyday at 1:00 AM
+    - cron: "0 1 * * *"
 
 permissions:
   contents: write
@@ -22,18 +22,51 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "latest"
+          node-version: "20"  # 使用稳定版本而非 latest
 
       - name: Install dependencies
         run: |
           npm install -g javascript-obfuscator
 
-      - name: Clone BPB workjs
+      - name: Download BPB worker js
+        id: download
         run: |
-          wget -O origin.js https://raw.githubusercontent.com/bia-pain-bache/BPB-Worker-Panel/refs/heads/main/build/unobfuscated-worker.js
-      
+          # 使用 GitHub API 获取文件内容
+          API_URL="https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/contents/build/unobfuscated-worker.js?ref=main"
+          
+          # 获取文件内容（使用 GitHub Token 提高成功率）
+          response=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "$API_URL")
+          
+          # 检查 API 响应是否有效
+          if ! echo "$response" | jq -e '.content' > /dev/null; then
+            echo "Error: Failed to fetch file from GitHub API"
+            echo "Response: $response"
+            exit 1
+          fi
+          
+          # 解码 Base64 内容并保存文件
+          echo "$response" | jq -r '.content' | base64 -d > origin.js
+          
+          # 验证文件是否成功下载
+          if [ ! -s origin.js ]; then
+            echo "Error: Downloaded file is empty or invalid"
+            exit 1
+          fi
+          
+          echo "File downloaded successfully"
+          echo "file_size=$(stat -c%s origin.js)" >> $GITHUB_OUTPUT
+
       - name: Obfuscate BPB worker js
         run: |
+          # 检查源文件是否存在
+          if [ ! -f origin.js ]; then
+            echo "Error: Source file not found"
+            exit 1
+          fi
+          
+          # 执行代码混淆
           javascript-obfuscator origin.js --output _worker.js \
           --compact true \
           --control-flow-flattening true \
@@ -47,11 +80,17 @@ jobs:
           --string-array-threshold 1 \
           --transform-object-keys true \
           --unicode-escape-sequence true
+          
+          # 验证输出文件
+          if [ ! -s _worker.js ]; then
+            echo "Error: Obfuscation failed - output file is empty"
+            exit 1
+          fi
 
       - name: Commit changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           branch: main
-          commit_message: ':arrow_up: update latest bpb panel'
+          commit_message: ':arrow_up: update latest bpb panel (size: ${{ steps.download.outputs.file_size }} bytes)'
           commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           push_options: '--set-upstream'
