@@ -1,199 +1,156 @@
-name: Build and Obfuscate BPB Panel
+name: Build Obfuscate BPB Panel
+
 on:
-  push:
-    branches:
-      - main
-  schedule:
-    # 每天凌晨1:00运行
-    - cron: "0 1 * * *"
+push:
+branches:
+- main
+schedule:
+# 每天早上1点运行
+- cron: "0 1 * * *"
+
 permissions:
-  contents: write
+contents: write
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 检出当前仓库代码
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: 设置 Node.js 环境
-        uses: actions/setup-node@v4
-        with:
-          node-version: "latest"
-          
-      - name: 安装混淆工具
-        run: |
-          npm install -g javascript-obfuscator
-          
-      - name: 检出 BPB 源码到临时目录
-        run: |
-          git clone https://github.com/bia-pain-bache/BPB-Worker-Panel.git bpb-source
-          
-      - name: 构建 BPB worker.js
-        run: |
-          cd bpb-source
-          npm install
-          npm run build
-          
-      - name: 调试：查看构建后的文件结构
-        run: |
-          echo "=== BPB 源码目录结构 ==="
-          ls -la bpb-source/
-          echo "=== 查找所有 .js 文件并显示大小 ==="
-          find bpb-source/ -name "*.js" -type f -exec ls -lh {} \; | grep -E '\.js$'
+build:
+runs-on: ubuntu-latest
 
-          echo "=== 查找包含 worker 的文件 ==="
-          find bpb-source/ -name "*worker*" -type f
-          echo "=== 查找 build 目录 ==="
-          find bpb-source/ -name "build" -type d
-          if [ -d "bpb-source/build" ]; then
-            echo "=== build 目录内容 ==="
-            ls -la bpb-source/build/
-          fi
-          
-      - name: 复制构建文件
-        run: |
-          echo "=== 查找所有 .js 文件并显示大小 ==="
-          find bpb-source/ -name "*.js" -type f -exec ls -lh {} \; | grep -E '\.js$'
-          
-      - name: 清理临时目录
-        run: |
-          rm -rf bpb-source
-          
-      - name: 检查文件是否存在
-        run: |
-          if [ ! -f origin.js ]; then
-            echo "错误：origin.js 文件不存在"
-            exit 1
-          fi
-          echo "文件大小: $(wc -c < origin.js) bytes"
-          
-      - name: 混淆 BPB worker.js
-        run: |
-          javascript-obfuscator origin.js --output _worker.js \
-            --compact true \
-            --control-flow-flattening false \
-            --dead-code-injection false \
-            --identifier-names-generator mangled \
-            --rename-globals false \
-            --string-array true \
-            --string-array-encoding 'rc4' \
-            --string-array-threshold 0.75 \
-            --transform-object-keys true \
-            --unicode-escape-sequence true
-            
-      - name: 验证混淆结果
-        run: |
-          if [ ! -f _worker.js ]; then
-            echo "错误：混淆失败，_worker.js 文件不存在"
-            exit 1
-          fi
-          echo "混淆后文件大小: $(wc -c < _worker.js) bytes"
-          
-      - name: 清理中间文件
-        run: |
-          rm -f origin.js
-          
-      - name: 提交更改
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          branch: main
-          commit_message: ':arrow_up: 更新最新的 BPB 面板'
-          commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
-          push_options: '--set-upstream'
-          
-      - name: 查找构建文件并复制 origin.js
-        run: |
-          echo "=== 专门查找大文件（>50KB） ==="
-          FOUND_FILE=""
+steps:
+  - name: Check out the code (Your Repository)
+    uses: actions/checkout@v4
 
-          # 尝试多个可能的路径
-          for path in \
-            "bpb-source/build/unobfuscated-worker.js" \
-            "bpb-source/dist/unobfuscated-worker.js" \
-            "bpb-source/build/worker.js" \
-            "bpb-source/dist/worker.js" \
-            "bpb-source/_worker.js" \
-            "bpb-source/worker.js"
-          do
-            if [ -f "$path" ]; then
-              size=$(stat -c%s "$path" 2>/dev/null || echo "0")
-              echo "检查文件 $path，大小：$size bytes"
-              if [ "$size" -gt 51200 ]; then
-                FOUND_FILE="$path"
-                echo "找到大文件：$path (${size} bytes)"
-                break
-              fi
-            fi
-          done
+  - name: Set up Python and Node.js
+    uses: actions/setup-python@v5
+    with:
+      python-version: '3.10'
 
-          # 如果还没找到，查找所有大于50KB的.js文件
-          if [ -z "$FOUND_FILE" ]; then
-            echo "在所有目录中查找大于50KB的.js文件："
-            LARGE_FILES=$(find bpb-source/ -name "*.js" -type f -size +50k)
-            if [ -n "$LARGE_FILES" ]; then
-              echo "找到的大文件："
-              echo "$LARGE_FILES"
-              FOUND_FILE=$(echo "$LARGE_FILES" | head -n1)
-              echo "使用第一个大文件：$FOUND_FILE"
-            fi
-          fi
+  - name: Set up Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: "latest"
 
-          # 复制文件
-          if [ -n "$FOUND_FILE" ] && [ -f "$FOUND_FILE" ]; then
-            cp "$FOUND_FILE" origin.js
-            size=$(stat -c%s origin.js 2>/dev/null || echo "0")
-            echo "成功复制文件，大小：$size bytes"
-          else
-            echo "错误：找不到合适大小的构建文件"
-            find bpb-source/ -name "*.js" -type f -exec ls -lh {} \;
-            exit 1
-          fi
+  - name: Clone BPB Worker Panel Repository
+    run: git clone --depth 1 https://github.com/bia-pain-bache/BPB-Worker-Panel.git bpb-panel
 
-          
-      - name: 清理临时目录
-        run: |
-          rm -rf bpb-source
-          
-      - name: 检查文件是否存在
-        run: |
-          if [ ! -f origin.js ]; then
-            echo "错误：origin.js 文件不存在"
-            exit 1
-          fi
-          echo "文件大小: $(wc -c < origin.js) bytes"
-          
-      - name: 混淆 BPB worker.js
-        run: |
-          javascript-obfuscator origin.js --output _worker.js \
-            --compact true \
-            --control-flow-flattening false \
-            --dead-code-injection false \
-            --identifier-names-generator mangled \
-            --rename-globals false \
-            --string-array true \
-            --string-array-encoding 'rc4' \
-            --string-array-threshold 0.75 \
-            --transform-object-keys true \
-            --unicode-escape-sequence true
-            
-      - name: 验证混淆结果
-        run: |
-          if [ ! -f _worker.js ]; then
-            echo "错误：混淆失败，_worker.js 文件不存在"
-            exit 1
-          fi
-          echo "混淆后文件大小: $(wc -c < _worker.js) bytes"
-          
-      - name: 清理中间文件
-        run: |
-          rm -f origin.js
-          
-      - name: 提交更改
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          branch: main
-          commit_message: ':arrow_up: 更新最新的 BPB 面板'
-          commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
-          push_options: '--set-upstream'
+  - name: Build BPB worker js
+    run: |
+      # 进入BPB仓库目录
+      cd bpb-panel
+      # 安装依赖
+      npm install
+      # 运行构建命令以生成 worker.js
+      npm run build
+  
+  - name: Create custom obfuscation script
+    run: |
+      cat > obfuscator.py << 'EOF'
+
+import sys
+import re
+import random
+import string
+import base64
+
+class CustomObfuscator:
+def init(self, code):
+self.code = code
+self.renaming_map = {}
+self.string_map = {}
+self.key = self._generate_unique_key()
+
+def _generate_unique_key(self):
+    """生成一个唯一的混淆密钥，确保混淆结果专属唯一"""
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+
+def _xor_encrypt(self, text):
+    """使用异或运算加密字符串"""
+    encrypted = ""
+    for i, char in enumerate(text):
+        encrypted += chr(ord(char) ^ ord(self.key[i % len(self.key)]))
+    return base64.b64encode(encrypted.encode('latin-1')).decode('utf-8')
+
+def _obfuscate_strings(self):
+    """混淆代码中的所有字符串"""
+    # 匹配单引号和双引号的字符串
+    pattern = r'(\"[^\"]*\")|(\'[^\']*\')'
+    matches = re.finditer(pattern, self.code)
+    
+    for match in matches:
+        original_string = match.group(0).strip('\'"')
+        if original_string:
+            encrypted_base64 = self._xor_encrypt(original_string)
+            self.string_map[encrypted_base64] = original_string
+            # 用一个独特的函数调用来代替原始字符串
+            new_string_call = f"__decrypt_string__('{encrypted_base64}')"
+            self.code = self.code.replace(match.group(0), new_string_call, 1)
+
+def _inject_junk_code(self):
+    """注入无意义的代码，增加阅读难度"""
+    junk_line = f"const __junk_var__ = '{self.key}';\n"
+    junk_line += "if (Math.random() > 1) { console.log('This will never run.'); }\n"
+    self.code = junk_line + self.code
+    
+def _prepend_decryption_function(self):
+    """在代码头部添加解密函数和密钥"""
+    decrypt_function = f"""
+
+const xor_key = '{self.key}';
+const decrypt_string = (base64Str) => {{
+let result = '';
+const encrypted = Buffer.from(base64Str, 'base64').toString('latin1');
+for (let i = 0; i < encrypted.length; i++) {{
+result += String.fromCharCode(encrypted.charCodeAt(i) ^ xor_key.charCodeAt(i % xor_key.length));
+}}
+return result;
+}};
+"""
+self.code = f"// 专属混淆时间: {self.key}\n" + decrypt_function + self.code
+
+def run(self):
+    self._obfuscate_strings()
+    self._prepend_decryption_function()
+    self._inject_junk_code()
+    return self.code
+
+--- 执行脚本 ---
+if name == "main":
+if len(sys.argv) < 3:
+print("用法: python obfuscator.py <输入文件路径> <输出文件路径>")
+sys.exit(1)
+
+input_file = sys.argv[1]
+output_file = sys.argv[2]
+
+try:
+    with open(input_file, 'r', encoding='utf-8') as f:
+        js_code = f.read()
+    
+    # 检查代码是否已经包含专属混淆标记，防止重复混淆
+    if '专属混淆时间' not in js_code:
+        obfuscator = CustomObfuscator(js_code)
+        obfuscated_code = obfuscator.run()
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(obfuscated_code)
+        
+        print("混淆完成，已保存到 _worker.js")
+    else:
+        print("代码已混淆，跳过混淆步骤。")
+
+except Exception as e:
+    print(f"混淆过程中发生错误: {{e}}")
+    raise
+
+'EOF'
+
+  - name: Obfuscate BPB worker with custom script
+    # 使用新生成的 worker.js 作为输入
+    run: python obfuscator.py bpb-panel/dist/worker.js _worker.js
+
+  - name: Commit changes
+    uses: stefanzweifel/git-auto-commit-action@v5
+    with:
+      branch: main
+      commit_message: ':arrow_up: update latest bpb panel'
+      commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
+      push_options: '--set-upstream'
